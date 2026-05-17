@@ -28,7 +28,7 @@
  *   Held-Karp exact DP : O(2^n * n^2) time,  O(2^n * n) space
  */
 
-#define _GNU_SOURCE
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -184,7 +184,7 @@ static int **build_overlap_matrix(const FragmentArray *fa) {
     int n = fa->count;
     int **ov = malloc(n * sizeof(int *));
     for (int i = 0; i < n; i++) {
-        ov[i] = malloc(n * sizeof(int));
+        ov[i] = malloc((size_t)n * sizeof(int));
         for (int j = 0; j < n; j++)
             ov[i][j] = (i == j) ? 0 : compute_overlap(fa->items[i], fa->items[j]);
     }
@@ -238,19 +238,21 @@ static void update_best(const char *candidate, bool optimal) {
  * Known worst-case approximation ratio: ≤ 4.
  * ═══════════════════════════════════════════════════════════════════ */
 
-static void __attribute__((noinline)) greedy_solve(const FragmentArray *fa, int **ov) {
+static void greedy_solve(const FragmentArray *fa, int **ov) {
     int n = fa->count;
     if (n == 0) return;
     if (n == 1) { update_best(fa->items[0], false); return; }
 
     /* chain_next[i] = fragment after i (-1 = tail)
        chain_prev[i] = fragment before i (-1 = head) */
-    int *nxt = malloc(n * sizeof(int));
-    int *prv = malloc(n * sizeof(int));
+    /* Cast to unsigned so gcc's -Walloc-size-larger-than analyser can see
+     * the value is bounded (it loses the n>1 guard after inlining). */
+    int *nxt = malloc((unsigned)n * sizeof(int));
+    int *prv = malloc((unsigned)n * sizeof(int));
     /* head[i] = head of the chain containing i
        tail[i] = tail of the chain containing i */
-    int *head = malloc(n * sizeof(int));
-    int *tail = malloc(n * sizeof(int));
+    int *head = malloc((unsigned)n * sizeof(int));
+    int *tail = malloc((unsigned)n * sizeof(int));
     for (int i = 0; i < n; i++) { nxt[i]=-1; prv[i]=-1; head[i]=i; tail[i]=i; }
 
     for (int round = 0; round < n - 1; round++) {
@@ -280,7 +282,7 @@ static void __attribute__((noinline)) greedy_solve(const FragmentArray *fa, int 
     /* extract ordering */
     int start = -1;
     for (int i = 0; i < n; i++) if (prv[i] == -1) { start = i; break; }
-    int *order = malloc(n * sizeof(int));
+    int *order = malloc((unsigned)n * sizeof(int));
     int  cnt   = 0;
     for (int cur = start; cur != -1; cur = nxt[cur]) order[cnt++] = cur;
     /* safety: add any fragments not reached (shouldn't happen) */
@@ -355,7 +357,7 @@ static void exact_solve(const FragmentArray *fa, int **ov) {
             if (dp[full*n + i] > best_ov) { best_ov = dp[full*n+i]; best_end = i; }
 
         /* reconstruct path */
-        int *order = malloc(n * sizeof(int));
+        int *order = malloc((size_t)n * sizeof(int));
         int  mask  = full, cur = best_end;
         for (int k = n-1; k >= 0; k--) {
             order[k] = cur;
@@ -417,11 +419,18 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /* install SIGINT handler */
+    /* Install SIGINT handler for graceful interruption (Ctrl+C).
+     * Guarded by _POSIX_VERSION so IntelliSense on Windows (where
+     * struct sigaction is undefined) sees the portable signal() fallback
+     * instead. On Linux with gcc the POSIX branch is always taken. */
+#if defined(_POSIX_VERSION)
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = handle_sigint;
     sigaction(SIGINT, &sa, NULL);
+#else
+    signal(SIGINT, handle_sigint);   /* fallback for non-POSIX builds */
+#endif
 
     /* ── 1. read ───────────────────────────────────────────────── */
     FragmentArray orig, work;
