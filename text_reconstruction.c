@@ -2,7 +2,7 @@
  * IFN664 Advanced Algorithms — Group Project
  * Minimum-Size Text Reconstruction from Overlapping Fragments
  *
- * Authors: [Group Member Names Here]
+ * Authors: Group 7
  *
  * Compile:  gcc -O2 -std=gnu11 -Wall -Wextra -o text_reconstruction text_reconstruction.c
  * Usage:    ./text_reconstruction <input_file>
@@ -56,17 +56,9 @@
 #include <signal.h>
 #include <limits.h>
 
-/*
- * Maximum n for which the exact Held-Karp DP is attempted.
- * Memory required: 2 × (2^n) × n × 4 bytes.
- *   n = 20 → ~160 MB   (comfortable on most machines)
- *   n = 23 → ~1.5 GB   (likely to fail on typical hardware)
- */
+
 #define MAX_EXACT 20
 
-/* ═══════════════════════════════════════════════════════════════════
- * DATA TYPE — dynamic array of C strings
- * ═══════════════════════════════════════════════════════════════════ */
 
 typedef struct {
     char **items;    /* heap-allocated array of heap-allocated strings */
@@ -74,14 +66,6 @@ typedef struct {
     int    capacity; /* allocated slots in items[]                     */
 } FragmentArray;
 
-/* ═══════════════════════════════════════════════════════════════════
- * GLOBAL STATE — shared with SIGINT handler
- *
- * Using globals here is intentional: signal handlers can only
- * communicate with the rest of the program through global variables.
- * 'interrupted' uses sig_atomic_t to guarantee atomic reads/writes
- * from the signal handler context.
- * ═══════════════════════════════════════════════════════════════════ */
 
 static volatile sig_atomic_t interrupted   = 0;
 static char                 *best_solution = NULL;
@@ -93,9 +77,6 @@ static void handle_sigint(int sig) {
     interrupted = 1;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * FRAGMENT ARRAY HELPERS
- * ═══════════════════════════════════════════════════════════════════ */
 
 static void fa_init(FragmentArray *fa) {
     fa->items = NULL;
@@ -142,10 +123,6 @@ static void fa_copy(const FragmentArray *src, FragmentArray *dst) {
         fa_append(dst, src->items[i]);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * INPUT
- * ═══════════════════════════════════════════════════════════════════ */
-
 /* Strips a trailing '\n' or '\r\n' in-place. */
 static void trim_newline(char *s) {
     size_t l = strlen(s);
@@ -173,16 +150,6 @@ static bool read_fragments(const char *filename, FragmentArray *fa) {
     return true;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * PREPROCESSING
- *
- * Step 1 — remove exact duplicates.
- * Step 2 — remove any fragment that is a proper substring of another.
- *
- * Correctness: if fragment A is a substring of fragment B, any string
- * that contains B already contains A. Therefore dropping A does not
- * shrink the set of valid superstrings.
- * ═══════════════════════════════════════════════════════════════════ */
 
 static void remove_duplicates(FragmentArray *fa) {
     for (int i = 0; i < fa->count; i++) {
@@ -217,23 +184,6 @@ static void preprocess(FragmentArray *fa) {
     remove_contained(fa);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * OVERLAP MATRIX
- *
- * ov[i][j] = length of the longest suffix of fa->items[i] that equals
- *             a prefix of fa->items[j].
- *
- * This is the 'gain' from ordering fragment i before fragment j: we
- * can skip ov[i][j] characters when we concatenate them.
- *
- * Minimising superstring length ≡ maximising total overlap.
- *
- * Time per pair: O(L^2) where L = max fragment length.
- * Total: O(n^2 · L^2).
- *
- * (Could be improved to O(n^2 · L) using KMP failure-function matching,
- *  but the quadratic-in-L cost is negligible for typical fragment lengths.)
- * ═══════════════════════════════════════════════════════════════════ */
 
 static int compute_overlap(const char *left, const char *right) {
     int ll    = (int)strlen(left);
@@ -269,13 +219,6 @@ static void free_overlap_matrix(int **ov, int n) {
     free(ov);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * SUPERSTRING ASSEMBLY
- *
- * Given a permutation 'order[0..n-1]' of fragment indices, assembles
- * the superstring: frags[order[0]] + frags[order[1]][ov:] + ...
- * where ov is the overlap between each consecutive pair.
- * ═══════════════════════════════════════════════════════════════════ */
 
 static char *assemble(const FragmentArray *fa, const int *order, int n, int **ov) {
     /* Calculate exact length to avoid repeated realloc. */
@@ -293,12 +236,6 @@ static char *assemble(const FragmentArray *fa, const int *order, int n, int **ov
     return s;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * BEST-SOLUTION TRACKING
- *
- * Called by both solvers. Keeps the shortest string seen so far.
- * Prints a progress line to stderr (so stdout stays clean).
- * ═══════════════════════════════════════════════════════════════════ */
 
 static void update_best(const char *candidate, bool optimal) {
     int len = (int)strlen(candidate);
@@ -338,14 +275,7 @@ static void greedy_solve(const FragmentArray *fa, int **ov) {
     if (n == 0) return;
     if (n == 1) { update_best(fa->items[0], false); return; }
 
-    /*
-     * We maintain chains as a linked list over indices 0..n-1.
-     *   nxt[i] = index of the fragment after i in its chain (-1 = tail)
-     *   prv[i] = index of the fragment before i (-1 = head)
-     *   head[i] = head of the chain containing i
-     *   tail[i] = tail of the chain containing i
-     * Initially every fragment is its own single-element chain.
-     */
+
     int *nxt  = malloc(n * sizeof(int));
     int *prv  = malloc(n * sizeof(int));
     int *head = malloc(n * sizeof(int));
@@ -509,12 +439,6 @@ static void exact_solve(const FragmentArray *fa, int **ov) {
     free(dp); free(par);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * VERIFICATION
- *
- * Confirms every original fragment (before preprocessing) appears as
- * a substring of the reconstructed string.
- * ═══════════════════════════════════════════════════════════════════ */
 
 static bool verify(const char *solution, const FragmentArray *orig) {
     bool ok = true;
@@ -528,9 +452,6 @@ static bool verify(const char *solution, const FragmentArray *orig) {
     return ok;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * DISPLAY HELPERS
- * ═══════════════════════════════════════════════════════════════════ */
 
 static void print_fragments(const FragmentArray *fa, const char *title) {
     printf("%s (%d fragment(s)):\n", title, fa->count);
@@ -551,9 +472,6 @@ static void print_overlap_matrix(const FragmentArray *fa, int **ov) {
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * MAIN
- * ═══════════════════════════════════════════════════════════════════ */
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -565,13 +483,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    /*
-     * Install SIGINT handler for graceful interruption (Ctrl+C).
-     * sigaction() is preferred over signal() on POSIX systems.
-     * The #ifdef guard silences IntelliSense on Windows, where
-     * struct sigaction is undefined; on Linux with gcc the POSIX
-     * branch is always taken.
-     */
+
 #if defined(_POSIX_VERSION)
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));

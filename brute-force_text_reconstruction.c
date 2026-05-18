@@ -1,5 +1,5 @@
 /*
- * IFN664 Advanced Algorithms — Group Project
+ * IFN664 Advanced Algorithms — Group Project - Group 7
  * Minimum-Size Text Reconstruction from Overlapping Fragments
  *
  * Compile:  gcc -O2 -std=gnu11 -Wall -Wextra -o text_reconstruction text_reconstruction.c
@@ -36,14 +36,10 @@
 #include <signal.h>
 #include <limits.h>
 
-/* Maximum n for which exact Held-Karp is attempted.
-   At n=23, dp+parent arrays need ~2 * 2^23 * 23 * 4 bytes ~ 1.5 GB.
-   At n=20, it needs ~160 MB which is comfortable on most machines. */
+
 #define MAX_EXACT 20
 
-/* ═══════════════════════════════════════════════════════════════════
- * DATA TYPES
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 typedef struct {
     char **items;
@@ -51,9 +47,6 @@ typedef struct {
     int    capacity;
 } FragmentArray;
 
-/* ═══════════════════════════════════════════════════════════════════
- * GLOBALS FOR SIGINT HANDLER
- * ═══════════════════════════════════════════════════════════════════ */
 
 static volatile sig_atomic_t interrupted  = 0;
 static char                 *best_solution = NULL;   /* best so far      */
@@ -65,9 +58,7 @@ static void handle_sigint(int sig) {
     interrupted = 1;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * FRAGMENT ARRAY HELPERS
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void fa_init(FragmentArray *fa) {
     fa->items = NULL; fa->count = 0; fa->capacity = 0;
@@ -98,9 +89,6 @@ static void fa_copy(const FragmentArray *src, FragmentArray *dst) {
     for (int i = 0; i < src->count; i++) fa_append(dst, src->items[i]);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * INPUT
- * ═══════════════════════════════════════════════════════════════════ */
 
 static void trim_newline(char *s) {
     size_t l = strlen(s);
@@ -121,12 +109,7 @@ static bool read_fragments(const char *filename, FragmentArray *fa) {
     return true;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * PREPROCESSING
- * Removes duplicates, then removes any fragment that is a substring
- * of another fragment. Both operations preserve correctness: any
- * superstring covering the longer fragment already covers the shorter.
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void remove_duplicates(FragmentArray *fa) {
     for (int i = 0; i < fa->count; i++) {
@@ -162,11 +145,7 @@ static void preprocess(FragmentArray *fa) {
     remove_contained(fa);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * OVERLAP MATRIX
- * ov[i][j] = length of longest suffix of fa->items[i] that is a
- * prefix of fa->items[j].  O(L^2) per pair, O(n^2 L^2) overall.
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static int compute_overlap(const char *left, const char *right) {
     int ll = (int)strlen(left), rl = (int)strlen(right);
@@ -197,10 +176,7 @@ static void free_overlap_matrix(int **ov, int n) {
     free(ov);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * ASSEMBLE SUPERSTRING from an ordering of fragment indices.
- * result = frags[order[0]] + frags[order[1]][ov[0][1]:] + ...
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static char *assemble(const FragmentArray *fa, const int *order, int n, int **ov) {
     int total = (int)strlen(fa->items[order[0]]);
@@ -214,9 +190,7 @@ static char *assemble(const FragmentArray *fa, const int *order, int n, int **ov
     return s;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * UPDATE BEST SOLUTION
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void update_best(const char *candidate, bool optimal) {
     int len = (int)strlen(candidate);
@@ -230,23 +204,14 @@ static void update_best(const char *candidate, bool optimal) {
     if (optimal) is_optimal = true;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * GREEDY SOLVER
- * Repeatedly merge the pair (i→j) with the largest overlap where i
- * is a chain tail and j is a chain head. O(n^2) merges.
- * Produces a correct solution quickly but not necessarily optimal.
- * Known worst-case approximation ratio: ≤ 4.
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void greedy_solve(const FragmentArray *fa, int **ov) {
     int n = fa->count;
     if (n == 0) return;
     if (n == 1) { update_best(fa->items[0], false); return; }
 
-    /* chain_next[i] = fragment after i (-1 = tail)
-       chain_prev[i] = fragment before i (-1 = head) */
-    /* Cast to unsigned so gcc's -Walloc-size-larger-than analyser can see
-     * the value is bounded (it loses the n>1 guard after inlining). */
+ 
     int *nxt = malloc((unsigned)n * sizeof(int));
     int *prv = malloc((unsigned)n * sizeof(int));
     /* head[i] = head of the chain containing i
@@ -297,18 +262,7 @@ static void greedy_solve(const FragmentArray *fa, int **ov) {
     free(result); free(order); free(nxt); free(prv); free(head); free(tail);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * EXACT SOLVER — Held-Karp DP over subsets
- *
- * dp[mask][j]  = maximum total overlap visiting exactly the fragments
- *                in 'mask', ending at fragment j.
- * par[mask][j] = the fragment visited just before j in that path.
- *
- * Minimising superstring length ≡ maximising total overlap.
- *
- * Time:  O(2^n * n^2)
- * Space: O(2^n * n)
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void exact_solve(const FragmentArray *fa, int **ov) {
     int n = fa->count;
@@ -373,10 +327,7 @@ static void exact_solve(const FragmentArray *fa, int **ov) {
     free(dp); free(par);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * VERIFICATION
- * Checks every original fragment appears in the solution.
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static bool verify(const char *solution, const FragmentArray *orig) {
     bool ok = true;
@@ -389,9 +340,7 @@ static bool verify(const char *solution, const FragmentArray *orig) {
     return ok;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * OUTPUT HELPERS
- * ═══════════════════════════════════════════════════════════════════ */
+
 
 static void print_overlap_matrix(const FragmentArray *fa, int **ov) {
     int n = fa->count;
@@ -406,9 +355,6 @@ static void print_overlap_matrix(const FragmentArray *fa, int **ov) {
     }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
- * MAIN
- * ═══════════════════════════════════════════════════════════════════ */
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -429,10 +375,10 @@ int main(int argc, char *argv[]) {
     sa.sa_handler = handle_sigint;
     sigaction(SIGINT, &sa, NULL);
 #else
-    signal(SIGINT, handle_sigint);   /* fallback for non-POSIX builds */
+    signal(SIGINT, handle_sigint);   
 #endif
 
-    /* ── 1. read ───────────────────────────────────────────────── */
+    // 1. read 
     FragmentArray orig, work;
     fa_init(&orig); fa_init(&work);
     if (!read_fragments(argv[1], &orig)) { fa_free(&orig); return 1; }
@@ -442,20 +388,20 @@ int main(int argc, char *argv[]) {
     printf("Original input fragments (%d):\n", orig.count);
     for (int i = 0; i < orig.count; i++) printf("  [%d] %s\n", i, orig.items[i]);
 
-    /* ── 2. preprocess ─────────────────────────────────────────── */
+    //2. preprocess
     preprocess(&work);
     printf("\nAfter preprocessing (%d fragment(s) remain):\n", work.count);
     for (int i = 0; i < work.count; i++) printf("  [%d] %s\n", i, work.items[i]);
 
-    /* ── 3. overlap matrix ─────────────────────────────────────── */
+    //3. overlap matrix 
     int **ov = build_overlap_matrix(&work);
     print_overlap_matrix(&work, ov);
 
-    /* ── 4. greedy (fast approximate solution) ─────────────────── */
+    //4. greedy (fast approximate solution)
     fprintf(stderr, "\nPhase 1: greedy solver...\n");
     greedy_solve(&work, ov);
 
-    /* ── 5. exact DP (optimal solution) ───────────────────────── */
+    //5. exact DP
     if (!interrupted) {
         if (work.count > MAX_EXACT) {
             fprintf(stderr,
@@ -470,7 +416,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "\nInterrupted. Using best solution found so far.\n");
     }
 
-    /* ── 6. output ─────────────────────────────────────────────── */
+    //6. output
     if (best_solution) {
         int sum_len = 0;
         for (int i = 0; i < work.count; i++) sum_len += (int)strlen(work.items[i]);
